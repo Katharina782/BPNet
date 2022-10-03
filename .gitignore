@@ -1,0 +1,12 @@
+data
+ref
+input
+.ipynb_checkpoints
+.Rproj.user
+.Rhistory
+*.RData
+*_cache
+trained_models
+
+__pycache__
+out
