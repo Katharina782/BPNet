@@ -7,6 +7,8 @@ project:
     - 02_APIs.qmd
     - 03_training.qmd
     - 04_architecture_comparison.qmd
+    - 05_interpretability.qmd
+    - 06_mutagenesis.qmd 
 
 website:
   title: "BPNet"
