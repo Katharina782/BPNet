@@ -91,6 +91,8 @@ dummy_shape_predictions(tune_dataset)
 
 # Different Number of Dilated Convolutational Layers
 
+We tested the effect of different numbers of convolutional layers on the model performance. Increasing the number up to 9 leads to drastic performance improvements, at which point the effect saturates. Also, one can see that more sequence context is especially helpful for the prediction of the Nanog profile. These results compare very well with the results from the paper. The explanation is rather simple: Initially, the more dilated convolutional layers we add (where the dilation rate in each additional layer is two times larger than in the previous layer), the receptive field increases such that more context from the input sequence can be used to make any prediction (see table \ref{tab:receptive_field} in the appendix). However, at dilated convolutional layer 10, the receptive field reaches 2073 bp (1036 in both directions) meaning for an input of size 1000 bp, the left and right kernel points will always be within the zero padding adding no more additional information. Thus, for a more sensible comparison, we would need input sequences that are much larger.
+
 ## Training (Only Shape Prediction)
 
 ```{python}
@@ -198,7 +200,9 @@ sns.scatterplot(data=df, x="n_layers", y="auprc", hue="tf", palette=color_pal)
 plt.show()
 ```
 
-# Different Number of Dilated Convolutational Layers
+# Different Number of channels Layers
+
+urthermore, we tested how different number of channels in each convolutional layer affect the profile predictions, showing that 64 channels offer a good compromise between model size and performance.
 
 ## Training (Only Shape Prediction)
 
@@ -307,6 +311,8 @@ plt.show()
 ```
 
 # Different Sizes of the first Kernel
+
+Originally, the filter in the first convolutional layer was set to a size of 25 bp, which is slightly larger than the typical size of TF binding motifs. As shown below we tested different kernel sizes, leading to the conclusion that a kernel size of 13 yields a better performance as measured by the auPRC. However, the overall performance differences for kernels in the range of 13-29 are rather small.
 
 ## Training (Only Shape Prediction)
 

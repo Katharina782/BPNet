@@ -105,7 +105,7 @@ one_hot_c <- compiler::cmpfun(one_hot) # compiling to bytecode not machine code 
 
 # Read Stats
 
-Look at the reading stats per TF to check how comparable the different ChIP-Nexus experiments are.
+Look at the reading stats per TF to check how comparable the different ChIP-Nexus experiments are. 
 
 ```{r}
 total_reads <- TFs %>%
@@ -172,6 +172,8 @@ peak_infos %>% head
 
 ## Distribution of the MACS2 Scores
 
+The figure below shows the distribution of qValues for the peaks from each TF. Overall, the distributions for Klf4, Oct4, and Sox2 are similar, whereas the curve for Nanog is shifted to the right, indicating that the peaks called in the Nanog experiment generally have a better "quality".
+
 ```{r cache=FALSE, fig.width=4, fig.height=4}
 p <- peak_infos %>%
   as.data.frame() %>%
@@ -187,6 +189,8 @@ p +
 ```
 
 ## Number of Peaks per TF
+
+As shown below, the number of peaks called in the experiments for Klf4 and Nanog is 2- and 4-times larger compared to Oct4 and Sox2 respectively. Given that the sequencing depth for Oct4 is the largest (approx. 250 M reads), the most likely reason for this difference is that Oct4 has fewer genomic bindings sites or that the antibody used in the experiment is less specific. In contrast, the total number of reads for Sox2 is the lowest (approx. 140 M), meaning the relatively small number of peaks could also be attributed to the low sequencing depth. 
 
 ```{r cache=FALSE, fig.width=4, fig.height=4}
 p <- peak_infos %>%

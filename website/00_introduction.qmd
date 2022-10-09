@@ -3,9 +3,38 @@ title: "00 Introduction"
 description: "What data do we have, what are we predicting and why are we doing that?"
 ---
 
-# What
+# Abstract
+
+Given that transcription factors play a central role in the regulation of gene expression, they have been in the focus of biological research for several decades. However, due to a lack of both suitable data and algorithms, the rules explaining their \textit{in vivo} binding specificity are yet to be discovered. Here, we replicate BPNet\autocite{BPNet}, a CNN that can predict continuous DNA-binding patterns of four well studied transcription factors at single base pair resolution. In a proof-of-principle, we show how the trained model can be used to infer rules guiding TF binding by studying the effects of \textit{in silico} mutations. Using a backpropagation-based algorithm (Deeplift\autocite{DeepLift}), we further explore which DNA patterns drive prediction outcomes in specific examples. The results along with the code required to obtain them can be accessed on the following pages.
+
+
+# Goal of this project
+
+In this project, we aim to reproduce the model and the results from the publication "Base-resolution models of transcription-factor binding reveal soft motif syntax" by Avsec et al. which introduces a CNN called BPNet that predicts TF binding using the DNA sequence as input. Additionally, the authors use a suite of interpretable machine learning algorithms to gain biological insights.
+
+In particular, BPNet was used to predict ChIP-Nexus profiles for four transcription factors (Klf4, Nanog, Oct4, Sox2) based on samples obtained from mouse embryonic stem cells. A simplified workflow of ChIP-seq is depicted below. ChIP-Nexus is an experimental method based on next-generation sequencing (NGS) to measure which genomic regions are bound by a specific transcription factor. Basically, DNA fragments bound by the TF of interest are enriched via chromatin immunoprecipitation and then sequenced. The raw sequencing data comprise hundreds of millions of short "reads" (total number per experiment is called sequencing depth) which are aligned to the mouse genome yielding a genome-wide "TF-binding signal". Regions exhibiting significant signal enrichment are called peaks, and the statistical significance of a peak is summarized in the qValue, where a large value indicates high confidence. 
+
+After processing each individual experiment, the peak tables for each TF are merged into one table containing all regions of interest (in total 150,908 peaks). Each peak is then symmetrically extended to a length of 1000 bp. For each of these regions, the coverage (number of reads) is computed for each TF, for both DNA strands, and for each base pair. Thus, for the whole data set, we obtain a tensor of size [number of peaks, 4 (number of TFs), 2 (number of DNA strands), 1000 (base pairs)].
 
 ![](img/ChIP-Nexus_Figure_inverted.jpg)
+
+
+The goal is to predict the ChIP-Nexus profiles for all four TFs using the corresponding DNA sequence and control track as input. The control track is obtained from protein attached chromatin capture (PAtCh-Cap) which is essentially an experimental method to measure which DNA sequences are non-specifically enriched in ChIP-Nexus experiments regardless of which TF has been targeted. This control track is also fed into the neural network so that it does not learn to predict unspecific signals, which we are not interested in. Using interpretable machine learning algorithms, the trained model will then be examined to understand which DNA patterns drive the predictions. Additionally, the trained model will be used to predict TF binding on mutated DNA sequences (in silico mutagenesis) to see how the spacing of different TF motifs affect the predictions. Although we only predict TF-binding patterns for four TFs in a single context (mouse embryonic stem cells), an interpretable neural network that predicts continuous TF-bindings signals at single base pair resolution allows us to draw general biological conclusions which likely translate to other contexts. Thus, helping to understand TF binding and, thereby, regulation of transcription in more detail.
+
+
+# Model architecture
+
+The model architecture was adopted from Avsec et al.. For a single peak, the input dimensions are 4 x 1000 corresponding to the one-hot encoded DNA sequence.
+
+The task of predicting the ChIP-Nexus profiles was decomposed into predicting the shape of the profile ("signal shape") and the total number of counts ("total signal"). Given that \textit{in vivo} TF binding not only depends on the DNA sequence but also on chromatin accessibility and TF concentrations, predicting the total number of counts is very difficult if the DNA sequence is the only input. On the other hand, predicting the profile shape (ignoring the magnitude of the signal) is easier as it represents the potential for TF binding to occur. Predicting the profile shape as well as the total counts for each TF has been implemented in a multitask model. The architecture consists of the main body and eight output heads. The main body is shared between the two different prediction tasks and the four TFs. For each TF there are two output heads, namely, the total count prediction head and the profile shape prediction head. 
+
+The main body's first 1D convolution layer has 64 channels with filter size 25. This layer is followed by nine 1D dilated convolution layers with skip connections, 64 channels and filter size 3. All convolution layers use "zero" and "same" padding. The dilation rate doubles with every layer. A ReLU activation function was used for all layers in the main body of the model. 
+
+The output of the main body's convolution layers is fed into the eight output heads. The two types of output heads are the shape prediction head and the total count prediction head . The output heads additionally receive the control tracks (from PAtCh-Cap control experiments) as input to ensure that the model does not learn patterns associated with experimental bias (meaning unspecific signal originating from DNA sequences that are specifically enriched in chromatin immunoprecipitation experiments).
+
+The shape prediction head consists of one transposed 1D convolution with 64 channels and filter size 25. In parallel, a transformation of the control track is computed. The transformed control track is added to the output of the 1D convolution. Softmax is applied to the sum to ensure that we obtain values between 0 and 1 which can be interpreted as probabilities. The profile shape predictions for a single TF have dimension 2 x 1000, corresponding to the probabilities of observing read counts at each position along the two strands of the 1000 bp sequences. 
+
+The total count head also receives the output of the main body as input. First, a global average pooling is applied in order to collapse the 64 x 1000 output of the main body to 64 x 1. This vector is fed into a multi-layer perceptron with two fully connected layers (64, 32 neurons) with output size 2 for both DNA strands. Avsec et al.  only used one fully connected layer instead of two. The output of the fully connected layer is then summed with a transformation of the total counts of the control track (see appendix, equation. Finally, a softplus activation is applied used to ensure that the predicted counts are positive. This is necessary due to the use of the logarithm in the loss function. The total count head outputs one prediction per strand.
 
 ![](img/chip_nexus_and_model_inverted.jpg)
 

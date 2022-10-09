@@ -1,0 +1,202 @@
+---
+title: "Training and Metrics Figure"
+engine: knitrs
+---
+
+# Libraries
+
+```{r}
+library(tidyverse)
+TF_LIST <- c("Nanog", "Klf4", "Oct4", "Sox2")
+colors = c("Klf4" = "#92C592",
+           "Nanog" = "#FFE03F",
+           "Oct4" = "#CD5C5C",
+           "Sox2" = "#849EEB",
+           "patchcap" = "#827F81")
+```
+
+# Losses
+
+```{r fig.width=2, fig.height=4}
+shape_count_loss <- read_csv("/home/philipp/BPNet/out/shape_counts_loss.csv", show_col_types = F)
+shape_loss <- read_csv("/home/philipp/BPNet/out/shape_loss.csv", show_col_types = F)
+
+shape_count_loss %>%
+  dplyr::select(-1) %>%
+  tidyr::pivot_longer(cols=!epoch) %>%
+  dplyr::mutate(set = ifelse(str_detect(name, "train"), "train", "tune")) %>%
+  dplyr::mutate(loss = dplyr::case_when(
+    str_detect(name, "shape") ~ "Profile Loss",
+    str_detect(name, "count") ~ "Count Loss",
+    TRUE ~ "Total Loss"
+  )) %>%
+  ggplot() +
+  geom_line(aes(x=epoch, y=value, linetype=set)) +
+  facet_wrap(~loss, ncol=1, scales="free_y") +
+  labs(x="Epoch", y="Loss") +
+  #scale_color_manual(values=c("train" = "forestgreen", "tune" = "darkorange2")) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill=NA))
+ggsave(filename = "/home/philipp/BPNet/out/figures/losses_all_TFs.pdf", width = 3, height = 5)
+```
+
+# Prediction for Example Sequence
+
+```{r fig.width=3, fig.height=5}
+df <- read_csv("/home/philipp/BPNet/out/example_shape_prediction.csv", show_col_types = F) %>%
+  dplyr::select(-1)
+
+tmp_counts <- df %>%
+  dplyr::filter(kind=="counts") %>%
+  dplyr::group_by(TF, strand) %>%
+  dplyr::summarise(n = sum(value))
+
+df_scaled <- df %>% dplyr::left_join(tmp_counts, by=c("TF", "strand")) %>%
+  dplyr::mutate(value = ifelse(kind=="counts", value, n * value)) %>%
+  dplyr::mutate(value = ifelse(strand=="pos", value, -value))
+
+p_list <- purrr::map(c("Klf4", "Nanog", "Oct4", "Sox2"), function(tf) {
+  df_scaled %>%
+    dplyr::filter(TF==tf) %>%
+    ggplot() +
+    geom_line(aes(x=position, y=value, col=TF, alpha=strand), size=0.2) +
+    scale_color_manual(values=colors) +
+    scale_alpha_manual(values=c("pos" = 1, "neg" = 1)) +
+    labs(x="", y="Counts") +
+    facet_wrap(~ kind, ncol=2) +
+    theme_bw() +
+    theme(legend.position = "NA",
+          strip.background = element_blank(),
+          strip.text.x = element_blank())
+})
+cowplot::plot_grid(plotlist = p_list, ncol=1)
+ggsave(filename = "/home/philipp/BPNet/out/figures/example_prediction.pdf", width = 4, height = 5)
+
+# df_scaled %>%
+#   dplyr::mutate(value = ifelse(strand=="pos", value, -value)) %>%
+#   ggplot() +
+#   geom_line(aes(x=position, y=value, col=TF, alpha=strand), size=0.5) +
+#   scale_color_manual(values=colors) +
+#   scale_alpha_manual(values=c("pos" = 1, "neg" = 1)) +
+#   facet_wrap(~ TF + kind, ncol=2) +
+#   theme_bw()
+```
+
+
+# Precision Recall Curves for all TFs at 1 bp Resolution
+
+```{r fig.width=3, fig.height=2}
+df <- read_csv("/home/philipp/BPNet/out/pr_curve_all_tfs.csv", show_col_types = F)
+df %>%
+  dplyr::slice_sample(prop = 0.01) %>%
+  ggplot() +
+  geom_line(aes(y=precision, x=recall, color=TF)) +
+  scale_color_manual(values=colors) +
+  labs(x="Recall", y="Precision", color="TF") +
+  theme_bw()
+ggsave(filename = "/home/philipp/BPNet/out/figures/auPRC_all_TFs.pdf", width = 4, height = 2)
+```
+
+# auPRCs different binsizes
+
+```{r fig.width=8, fig.height=2}
+df <- purrr::map_dfr(TF_LIST, ~ read_csv(paste0("/home/philipp/BPNet/out/binsizes_auprc_", .x, ".csv"), 
+                                   show_col_types = F) %>%
+                                     dplyr::mutate(TF = .x)) %>%
+  dplyr::select(-1) %>%
+  tidyr::pivot_longer(cols = dplyr::matches("auprc")) %>%
+  dplyr::mutate(name = dplyr::case_when(
+    name == "auprc" ~ "BPNet",
+    name == "random_auprc" ~ "Random",
+    name == "average_auprc" ~ "Mean Prediction",
+    name == "patchcap_auprc" ~ "Control Prediction"
+  )) %>%
+  dplyr::mutate(name = factor(name, levels=c("BPNet", "Mean Prediction", "Control Prediction", "Random")))
+
+df %>%
+  ggplot(aes(x=binsize, y=value, shape=name)) +
+  geom_point(size=2) +
+  geom_line(size=0.5) +
+  facet_wrap(~ TF, ncol=4) +
+  labs(x="Binsize [bp]", y="auPRC", color="") +
+  #scale_color_manual(values=c("BPNet" = "forestgreen", "Mean Prediction" = "darkorange2",
+  #                            "Control Prediction" = "deepskyblue3", "Random" = "azure4")) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill=NA), strip.text = element_text(size=10))
+ggsave(filename = "/home/philipp/BPNet/out/figures/binsizes_auprc.pdf", width = 8, height = 2)
+```
+
+# Count Prediction Stats
+
+```{r fig.width=4, fig.height=2}
+count_stats <- read_csv("/home/philipp/BPNet/out/count_stats.csv", show_col_types = F)
+count_stats %>%
+  dplyr::rename(c("MSE" = "mse", "R2" = "r2")) %>%
+  dplyr::mutate(TF = factor(TF, levels=c("Sox2", "Oct4", "Nanog", "Klf4"))) %>%
+  tidyr::pivot_longer(cols=c(MSE, R2)) %>%
+  ggplot() +
+  geom_bar(aes(y=TF, x=value, fill=TF), stat="identity", alpha=0.5, color="black", width=0.5) +
+  facet_wrap(~name, scales="free_x") +
+  scale_fill_manual(values=colors) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill=NA))
+ggsave("/home/philipp/BPNet/out/figures/count_figure.pdf", width = 4, height = 2)
+```
+
+# Architecture Experiments
+
+## Number of dilated convolutational layers
+
+
+```{r}
+getwd()
+```
+
+```{r fig.width=10, fig.height=4}
+df_selected <- data.frame(list("kind" = c("Number of dilated conv layers",
+                                          "Number of channels in each dilated conv layer",
+                                          "Kernel size in first conv layer"),
+                               "thresholds" = c(9, 64, 25)))
+
+rbind(
+  read_csv("/home/philipp/BPNet/out/dil_layers_auprc.csv", show_col_types = F) %>%
+  dplyr::select(-1) %>%
+  dplyr::mutate(kind = "Number of dilated conv layers") %>%
+  dplyr::rename("x" = "n_layers"),
+  read_csv("/home/philipp/BPNet/out/conv_channel_auprc.csv", show_col_types = F) %>%
+  dplyr::select(-1) %>%
+  dplyr::mutate(kind = "Number of channels in each dilated conv layer") %>%
+  dplyr::rename("x" = "n_channels"),
+  read_csv("/home/philipp/BPNet/out/first_kern_size_auprc.csv", show_col_types = F) %>%
+  dplyr::select(-1) %>%
+  dplyr::mutate(kind = "Kernel size in first conv layer") %>%
+  dplyr::rename("x" = "first_kern_size")
+) %>%
+  ggplot(aes(x=x, y=auprc, col=tf)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(data=df_selected, mapping = aes(xintercept = thresholds), 
+             alpha=0.5, linetype="dashed") +
+  labs(x="Values", y="auPRC", col="TF") +
+  facet_wrap(~kind, ncol=3, scales="free") +
+  scale_color_manual(values=colors) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill=NA), strip.text = element_text(size=10))
+ggsave(filename="/home/philipp/BPNet/out/figures/architecture_figure.pdf", width = 12, height = 4)
+```
+
+
+## Number of channels per dilated conv layer
+
+```{r}
+read_csv("/home/philipp/BPNet/out/conv_channel_auprc.csv", show_col_types = F) %>%
+  dplyr::select(-1)
+```
+
+## Size of kernel in first conv layer
+
+```{r}
+read_csv("/home/philipp/BPNet/out/first_kern_size_auprc.csv", show_col_types = F) %>%
+  dplyr::select(-1)
+```
+

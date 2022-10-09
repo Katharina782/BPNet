@@ -102,6 +102,46 @@ dummy_shape_predictions(test_dataset)
 dummy_total_counts_predictions(test_dataset)
 ```
 
+# Loss Functions
+
+
+The model was trained using early stopping with a patience of 4 epochs (see figure \ref{fig:training_figure}). In each epoch, we computed the loss on the train and tune data set. If the tune loss did not improve for the past 4 epochs we stopped the training and kept the model architecture with the best tune loss. This way we try to circumvent the problem of over fitting which we observed after approximately 40 epochs. The ADAM optimizer implemented in the PyTorch library \autocite{NEURIPS2019_9015} was used to optimize the weights during training. The multitask loss was computed as a weighted sum of the individual loss functions of all output heads of the model (see figure \ref{fig:bpnet_overview}). For the profile shape prediction Avsec et al. \autocite{BPNet} use the multinomial negative log-likelihood as loss function which is defined as
+
+$ -log p_{Mult}(k^{obs}|n^{obs}, p^{pred}) &= -\log{\frac{n^{obs}}{k_1! * ... * k_L!}}\prod_{i = 1}^{L}{p_i^{k_i}}$
+$= -\log{\frac{n^{obs}}{k_1! * ... * k_L!}} - \sum_{i = 1}^{L}{\log{p_i^{k_i}}} $
+$= -\log{n^{obs}!} + \log{\prod_{i = 1 }^{L}{k_i!}} - \sum_{i = 1}^{L}{k_i\log{p_i}} $
+$= -\log{n^{obs}!} + \sum_{i = 1}^{L}{\log{k_i!}} - \sum_{i = 1}^{L}{k_i\log{p_i}}$
+
+where $n^{obs} = \sum_{i=1}^{L}{k_i^{obs}}$ is the total number of observed counts, $k^{obs} \in \mathbb{R^L}$ is a vector of the observed read counts of one strand along the sequence of length $L$ and $p^{pred} \in \mathbb{R^L}$ is a vector of predicted probabilities along the same sequence. By decomposing the loss as shown above we were able speed up the computation by relying on a fast implementation of the natural logarithm of the absolute value of the gamma function (lgamma) from PyTorch \autocite{NEURIPS2019_9015} (see website for more details).
+
+The loss for the total count prediction was defined as the squared error of the log total number of counts.
+
+$MSE_{TotalCounts} = (\log{(1 + n^{obs})} - \log{(1 + n^{pred})})^2$
+
+Again, $n^{obs}$ is the total number of observed counts of one strand and sequence of length $L$ and $n^{pred}$ is the predicted number of counts for the same strand. The total loss is then defined as the sum of the two individual loss functions, weighted by the hyperparameter $\lambda$:
+
+$Loss = -log p_{Mult}(k^{obs}|n^{obs}, p^{pred}) + \lambda (\log{(1 + n^{obs})} - \log{(1 + n^{pred})})^2$
+
+
+By setting $\lambda$ equal to half of the median total number of counts per sequence from all experiments, both loss terms are given approximately the same weight.
+
+# Metrics
+
+To validate the predictions made by our model and as a metric to compare different variants of the architecture, we used the area under the precision-recall curve (auPRC) as proposed in the original publication. We copied and adapted the required code the corresponding code repository (see \href{https://github.com/kundajelab/bpnet/blob/master/bpnet/metrics.py}{here}) To compute the auPRC the scikit-learn library was used. 
+
+
+The main idea is to create binary class labels from the continuous CHIP-Nexus profiles. The observed total counts are converted into binary labels and serve as ground truth. Any position which contains more than 1.5\% of the total counts is labeled as positive and any position with less than 0.5\% is labeled as negative. Positions in between are considered ambiguous. Importantly, there might be some sequences where 1.5\% of total counts corresponds to less than 3 reads mapping to a position, meaning a position with less than 3 reads would get a positive label. Given that 2 reads cannot be confidently distinguished from experimental noise, such sequences are excluded from the evaluation. Also, any ambiguous positions are removed. As mentioned above, CHIP-Nexus provides single base pair resolution of TF binding sites, but to evaluate performance the auPRC was computed at lower resolutions as well. This was done by binning the binary labels such that any bin containing a positive label is also labeled as positive, any bin containing only negative labels is labeled as negative and the rest as ambiguous. Probabilities are binned such that the maximum value in a bin is retained. The predicted probabilities for each position or bin are converted to binary labels using different thresholds $t$ and compared to the ground truth labels to compute the auPRC and plot the PRC.
+
+Recall (detected positives out of all true positives) is defined as:
+
+$h_{TP} = \frac{TP(t)}{N_p} = \frac{TP(t)}{TP + FN}$
+
+
+Precision is defined as:
+
+$prec(t) = \frac{TP(t)}{TP(t) + FP(t)}$
+
+
 # Shape Prediction
 
 ## Train Loop
@@ -267,6 +307,8 @@ for i in range(profile_pred.shape[0]):
 
 ### Precision and Recall
 
+Below you can see the precision-recall curve for each TF.
+
 ```{python}
 test_pred = torch.zeros(test_dataset.tf_counts.shape, dtype=torch.float32).to(device)
 with torch.no_grad():
@@ -293,8 +335,8 @@ def plot_prc(test_dataset, test_pred, tf_index, tf_name, plot = True):
     binary_labels, pred_subset, random = binary_labels_from_counts(tf_counts, tf_pred, verbose=False)
     precision, recall, thresholds = skm.precision_recall_curve(binary_labels, pred_subset)
     if plot:
-        plt.plot(precision, recall,  label=f"{tf}")
-        plt.title(f"Precision-Recall Curve: {tf_name}")
+        plt.plot(recall, precision,  label=f"{tf}")
+        plt.title(f"Precision-Recall Curve")
         plt.xlabel("recall")
         plt.ylabel("precision")
     else:
@@ -306,6 +348,11 @@ for i, tf in enumerate(TF_LIST):
     plot_prc(test_dataset, test_pred, i, tf, plot=True)
     plt.legend()
 ```
+
+
+# auPRC 
+
+To compare the performance of BPNet to random profiles, average profiles and the patchcap control data, we computed the auPRC for different binsizes/resolutions for each TF. The model performs significantly better than random predictions, average profiles or control tracks. However, there are some differences between TFs. Predictions for NAnog and Sox2 are much better than for Oct4 and Klf4 as can be seen below.
 
 ```{python}
 df = pd.DataFrame(columns=["TF", "precision", "recall"])
